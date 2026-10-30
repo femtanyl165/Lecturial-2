@@ -1,0 +1,269 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AB /* Lecturial.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6 /* Lecturial.swift */; };
+		AD /* manrope_regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AC /* manrope_regular.ttf */; };
+		B2 /* Features.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1 /* Features.swift */; };
+		CA /* LiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7 /* LiveModels.swift */; };
+		CB /* SystemFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8 /* SystemFeatures.swift */; };
+		CC /* Outlook.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9 /* Outlook.swift */; };
+		CD /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6 /* Extensions.swift */; };
+		CE /* LiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7 /* LiveModels.swift */; };
+		D2 /* LecturialWidgets.appex in CopyFiles */ = {isa = PBXBuildFile; fileRef = C2 /* LecturialWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E1 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3C8CC6433094CF4D00848747 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C1;
+			remoteInfo = LecturialWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D1 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstSubfolderSpec = 13;
+			files = (
+				D2 /* LecturialWidgets.appex in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A6 /* Lecturial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lecturial.swift; sourceTree = "<group>"; };
+		A7 /* Lecturial.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Lecturial.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC /* manrope_regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = manrope_regular.ttf; sourceTree = "<group>"; };
+		B1 /* Features.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features.swift; sourceTree = "<group>"; };
+		C2 /* LecturialWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = LecturialWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C6 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		C7 /* LiveModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveModels.swift; sourceTree = "<group>"; };
+		C8 /* SystemFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemFeatures.swift; sourceTree = "<group>"; };
+		C9 /* Outlook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Outlook.swift; sourceTree = "<group>"; };
+		E1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		3C8CC6423094CF4D00848747 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				C2 /* LecturialWidgets.appex */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		A3 = {
+			isa = PBXGroup;
+			children = (
+				A6 /* Lecturial.swift */,
+				A7 /* Lecturial.app */,
+				AC /* manrope_regular.ttf */,
+				B1 /* Features.swift */,
+				C6 /* Extensions.swift */,
+				C7 /* LiveModels.swift */,
+				C8 /* SystemFeatures.swift */,
+				C9 /* Outlook.swift */,
+				E1 /* Assets.xcassets */,
+				3C8CC6423094CF4D00848747 /* Recovered References */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A4 /* Lecturial */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A8 /* Build configuration list for PBXNativeTarget "Lecturial" */;
+			buildPhases = (
+				A9 /* Sources */,
+				AE /* Resources */,
+				D1 /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D3 /* PBXTargetDependency */,
+			);
+			name = Lecturial;
+			productName = Lecturial;
+			productReference = A7 /* Lecturial.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C1 /* LecturialWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C3 /* Build configuration list for PBXNativeTarget "LecturialWidgets" */;
+			buildPhases = (
+				C5 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LecturialWidgets;
+			productName = LecturialWidgets;
+			productReference = C2 /* LecturialWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+			};
+			buildConfigurationList = A2 /* Build configuration list for PBXProject "Lecturial" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A3;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A4 /* Lecturial */,
+				C1 /* LecturialWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD /* manrope_regular.ttf in Resources */,
+				E2 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB /* Lecturial.swift in Sources */,
+				B2 /* Features.swift in Sources */,
+				CA /* LiveModels.swift in Sources */,
+				CB /* SystemFeatures.swift in Sources */,
+				CC /* Outlook.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD /* Extensions.swift in Sources */,
+				CE /* LiveModels.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C1 /* LecturialWidgets */;
+			targetProxy = 3C8CC6433094CF4D00848747 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+			};
+			name = Debug;
+		};
+		AA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = B8MSKT2ZPG;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AppInfo.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rassvet.lecturial2.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Widget.entitlements;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = B8MSKT2ZPG;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = WidgetInfo.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rassvet.lecturial2.ios.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A2 /* Build configuration list for PBXProject "Lecturial" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A5 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A8 /* Build configuration list for PBXNativeTarget "Lecturial" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C3 /* Build configuration list for PBXNativeTarget "LecturialWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A1 /* Project object */;
+}
