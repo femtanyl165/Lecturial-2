@@ -11,6 +11,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Синхронизация занятий и планов с выбранным календарём</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 </dict>

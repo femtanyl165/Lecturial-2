@@ -99,7 +99,7 @@ actor ScheduleAPI {
             guard let title = raw["discipline"] as? String, let date = raw["date"] as? String else { return nil }
             let teachers = raw["teachers"] as? [String: [String: Any]] ?? [:]
             return Lesson(date: date, start: raw["startTime"] as? String ?? "", end: raw["endTime"] as? String ?? "", title: title, room: raw["classroom"] as? String ?? "", teacher: teachers.values.compactMap { $0["fio"] as? String }.sorted().joined(separator: ", "), type: raw["groupType"] as? String, address: raw["address"] as? String, comment: raw["comment"] as? String, onlineURL: raw["urlOnline"] as? String)
-        }.sorted { $0.start < $1.start }
+        }.filter { group.hasPrefix("teacher:") || group.hasPrefix("classroom:") || !isExtracurricular($0) }.sorted { $0.start < $1.start }
     }
 }
 
@@ -114,7 +114,7 @@ actor ScheduleAPI {
         let key = "week-" + group + "-" + String(Int(week.timeIntervalSince1970 / 86400))
         lessons = (UserDefaults.standard.data(forKey: key)).flatMap { try? JSONDecoder().decode([Lesson].self, from: $0) } ?? []
         message = lessons.isEmpty ? "" : "Сохранённое расписание"
-        do { lessons = try await api.fetch(group: group, week: week); UserDefaults.standard.set(try JSONEncoder().encode(lessons), forKey: key); await LessonAlertService.update(lessons); await SystemFeatures.update(lessons, group: group); await OutlookSync.shared.automatic(lessons: lessons, group: group, week: week); message = lessons.isEmpty ? "На эту неделю занятий нет" : "Обновлено" }
+        do { lessons = try await api.fetch(group: group, week: week); UserDefaults.standard.set(try JSONEncoder().encode(lessons), forKey: key); await LessonAlertService.update(lessons); await SystemFeatures.update(lessons, group: group); await PhoneCalendar.shared.sync(); await OutlookSync.shared.automatic(lessons: lessons, group: group, week: week); message = lessons.isEmpty ? "На эту неделю занятий нет" : "Обновлено" }
         catch { message = "Не удалось обновить расписание: " + error.localizedDescription }
     }
 }
@@ -126,26 +126,30 @@ actor ScheduleAPI {
     var body: some Scene { WindowGroup { AppRootView() } }
 }
 struct AppRootView: View {
+    @AppStorage("setupFinished") private var setupFinished = false
     @AppStorage("theme") private var theme = "sirius"
     @AppStorage("customAccent") private var customAccent = "B7C7FF"
     @AppStorage("dark") private var dark = true
     @State private var selected = 0
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let accent = themeColor(theme, custom: customAccent)
         TabView(selection: $selected) {
             ScheduleView().tag(0).toolbar(.hidden, for: .tabBar)
             PlansView().tag(1).toolbar(.hidden, for: .tabBar)
+            ExpressiveStudyView().tag(3).toolbar(.hidden, for: .tabBar)
             AppearanceView().tag(2).toolbar(.hidden, for: .tabBar)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 4) {
                 navItem(0, "Расписание", "calendar", accent)
                 navItem(1, "Планы", "checklist", accent)
+                navItem(3, "Учёба", "graduationcap", accent)
                 navItem(2, "Настройки", "gearshape", accent)
             }.padding(.horizontal, 12).padding(.vertical, 10)
             .background(dark ? Color(hex: 0x20222B) : Color(hex: 0xEBEDF7))
-        }.tint(accent).preferredColorScheme(dark ? .dark : .light)
+        }.tint(accent).preferredColorScheme(isPaperTheme(theme) ? .light : (dark ? .dark : .light)).onChange(of:scenePhase) { _,phase in if phase == .active, AccountStore.shared.browser.url?.host == "lks.siriusuniversity.ru" { Task { await AccountStore.shared.refresh() } } }.fullScreenCover(isPresented: Binding(get: { !setupFinished },set: { if !$0 { setupFinished = true } })) { FirstSetupView() }
     }
     func navItem(_ index: Int, _ title: String, _ symbol: String, _ accent: Color) -> some View {
         Button {
@@ -159,6 +163,8 @@ struct AppRootView: View {
     }
 }
 struct ScheduleView: View {
+    @AppStorage("scheduleLayout") private var layout = "feed"
+    @State private var selectedDay = max(0, (Calendar(identifier: .iso8601).component(.weekday, from: Date()) + 5) % 7)
     @AppStorage("customAccent") private var customAccent = "B7C7FF"
     @AppStorage("theme") private var theme = "sirius"
     @AppStorage("titleSize") private var titleSize = 16.0
@@ -186,17 +192,23 @@ struct ScheduleView: View {
                         Spacer()
                         Button { shift(7) } label: { Image(systemName: "chevron.right") }.disabled(store.loading)
                     }.buttonStyle(.borderless)
+                    if layout == "days" {
+                        HStack(spacing: 4) { ForEach(0..<7, id: \.self) { index in
+                            Button { selectedDay = index } label: { Text(Calendar.current.date(byAdding: .day,value:index,to:week)!, format:.dateTime.day()).frame(maxWidth:.infinity).padding(.vertical,10).background(selectedDay == index ? accent.opacity(0.25) : .clear,in:Capsule()) }.buttonStyle(.plain)
+                        } }
+                    }
+                    NavigationLink("План дня") { DayPlannerView() }
                     Text(group.isEmpty ? "Укажите учебную группу в настройках" : group).font(.headline)
                     if store.loading { ProgressView("Загрузка…") }
                     if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(.secondary) }
                 }
-                ForEach(0..<7, id: \.self) { offset in
+                ForEach(layout == "days" ? [selectedDay] : Array(0..<7), id: \.self) { offset in
                     let date = Calendar.current.date(byAdding: .day, value: offset, to: week)!
-                    let items = store.lessons.filter { $0.date == dateKey(date) }
+                    let items = store.lessons.filter { $0.date == dateKey(date) && (group.hasPrefix("teacher:") || group.hasPrefix("classroom:") || !isExtracurricular($0)) }
                     Section {
                         if items.isEmpty { Text(store.message.hasPrefix("Не удалось") ? "Нет сохранённых данных на этот день" : (store.loading ? "Загрузка…" : "Нет занятий")).foregroundStyle(.secondary) }
                         ForEach(items) { lesson in
-                            ExpressiveLessonCard(lesson: lesson, accent: accent, dark: dark, titleSize: titleSize, radius: radius, opacity: opacity, showRoom: showRoom, showTeacher: showTeacher, showEnd: showEnd, wrap: wrap)
+                            ExpressiveLessonCard(lesson: lesson, accent: accent, dark: isPaperTheme(theme) ? false : dark, titleSize: titleSize, radius: radius, opacity: opacity, showRoom: showRoom, showTeacher: showTeacher, showEnd: showEnd, wrap: wrap)
                                 .listRowBackground(Color.clear).listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: spacing / 2, leading: 16, bottom: spacing / 2, trailing: 16))
                         }
@@ -205,6 +217,11 @@ struct ScheduleView: View {
                     }
                 }
             }
+            .simultaneousGesture(DragGesture(minimumDistance: 40).onEnded { value in
+                guard layout == "days", abs(value.translation.width) > abs(value.translation.height) else { return }
+                if value.translation.width < 0 { if selectedDay < 6 { selectedDay += 1 } else { shift(7); selectedDay = 0 } }
+                else { if selectedDay > 0 { selectedDay -= 1 } else { shift(-7); selectedDay = 6 } }
+            })
             .listRowBackground(Color.clear)
             .scrollContentBackground(.hidden)
             .background { ScheduleBackground(style: background, accent: accent, dark: dark) }
@@ -220,11 +237,11 @@ struct ScheduleView: View {
                     Section {
                     HStack(spacing: 16) { Image("LecturialAvatar").resizable().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16)); VStack(alignment: .leading) { Text("Lecturial 2").font(.headline); Text("Расписание Сириуса").foregroundStyle(.secondary) } }
                 }
-                Section("Оформление") { Toggle("Тёмная тема", isOn: $dark) }
+                Section("Оформление") { LayoutChooser(layout:$layout); Toggle("Тёмная тема", isOn: $dark) }
                     Section { Link("Расписание Сириуса", destination: URL(string: "https://schedule.siriusuniversity.ru/")!); Text("Неофициальное приложение университета «Сириус»").font(.caption) }
                 }.navigationTitle("Настройки").toolbar { Button("Готово") { settings = false } } }
             }
-        }.preferredColorScheme(dark ? .dark : .light).tint(accent)
+        }.preferredColorScheme(isPaperTheme(theme) ? .light : (dark ? .dark : .light)).tint(accent)
     }
     var accent: Color { themeColor(theme, custom: customAccent) }
     func shift(_ days: Int) { week = Calendar.current.date(byAdding: .day, value: days, to: week)!; Task { await store.load(group: group, week: week) } }
@@ -294,6 +311,7 @@ struct PlansView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section { NavigationLink("План дня") { DayPlannerView() } }
                 Section("Новый план") {
                     TextField("Задание или экзамен", text: $title)
                     DatePicker("Дедлайн", selection: $due, in: Date()...)
@@ -335,7 +353,7 @@ extension Color {
 }
 func themeColor(_ name: String, custom: String = "B7C7FF") -> Color {
     if name == "custom", let value = UInt32(custom.replacingOccurrences(of: "#", with: ""), radix: 16) { return Color(hex: value) }
-    let colors: [String: UInt32] = ["sirius":0xB7C7FF,"ocean":0x6DD5ED,"forest":0x92FE9D,"sunset":0xFEB47B,"amethyst":0xB39DDB,"sakura":0xE9A0B4,"amber":0xFFC107,"graphite":0xBDC3C7,"neon":0x00E5FF,"fuchsia":0xFF80CC,"electric":0x80A0FF]
+    let colors: [String: UInt32] = ["paper":0x2563EB,"mint":0x0B8A68,"lavender":0x6D4ED1,"midnight":0x3B5BDB,"espresso":0x8B5A3C,"sirius":0xB7C7FF,"ocean":0x6DD5ED,"forest":0x92FE9D,"sunset":0xFEB47B,"amethyst":0xB39DDB,"sakura":0xE9A0B4,"amber":0xFFC107,"graphite":0xBDC3C7,"neon":0x00E5FF,"fuchsia":0xFF80CC,"electric":0x80A0FF]
     return Color(hex: colors[name] ?? 0xB7C7FF)
 }
 struct ScheduleBackground: View {
@@ -355,7 +373,7 @@ struct ScheduleBackground: View {
         TimelineView(.animation(minimumInterval: 1.0 / 24, paused: reduceMotion || speed == 0 || style == "classic")) { timeline in
             let phase = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate * speed * 0.2
             ZStack {
-                (dark ? Color.black : Color(white: 0.96))
+                (isPaperTheme(UserDefaults.standard.string(forKey:"theme") ?? "") ? paperBackground(UserDefaults.standard.string(forKey:"theme") ?? "") : (dark ? Color.black : Color(white: 0.96)))
                 if style != "classic" { LinearGradient(colors: [accent.opacity(intensity * 0.4), .clear, Color(hex: UInt32(gradientEnd.replacingOccurrences(of: "#", with: ""), radix: 16) ?? 0x845EC2).opacity(intensity * 0.3)], startPoint: UnitPoint(x: 0.5 - cos(gradientAngle * .pi / 180) * 0.5, y: 0.5 - sin(gradientAngle * .pi / 180) * 0.5), endPoint: UnitPoint(x: 0.5 + cos(gradientAngle * .pi / 180) * 0.5, y: 0.5 + sin(gradientAngle * .pi / 180) * 0.5)) }
                 Canvas { context, size in
                     let count = max(12, Int(36 * density))
@@ -401,6 +419,7 @@ struct ScheduleBackground: View {
     }
 }
 struct AppearanceView: View {
+    @AppStorage("scheduleLayout") private var layout = "feed"
     @AppStorage("theme") private var theme = "sirius"
     @AppStorage("dark") private var dark = true
     @AppStorage("background") private var background = "classic"
@@ -426,10 +445,10 @@ struct AppearanceView: View {
                 Section {
                     HStack(spacing: 16) { Image("LecturialAvatar").resizable().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16)); VStack(alignment: .leading) { Text("Lecturial 2").font(.headline); Text("Расписание Сириуса").foregroundStyle(.secondary) } }
                 }
-                Section("Оформление") {
+                Section("Оформление") { LayoutChooser(layout:$layout)
                     Toggle("Тёмная тема", isOn: $dark)
                     Picker("Палитра", selection: $theme) {
-                        ForEach(["sirius","ocean","forest","sunset","amethyst","sakura","amber","graphite","neon","fuchsia","electric","custom"], id: \.self) { name in Text(name.capitalized).foregroundStyle(themeColor(theme, custom: customAccent)).tag(name) }
+                        ForEach(["sirius","ocean","forest","sunset","amethyst","sakura","amber","graphite","neon","fuchsia","electric","paper","mint","lavender","midnight","espresso","custom"], id: \.self) { name in Text(name.capitalized).foregroundStyle(themeColor(theme, custom: customAccent)).tag(name) }
                     }
                     .id("palette-" + theme)
                     Picker("Фон", selection: $background) {
@@ -456,10 +475,10 @@ struct AppearanceView: View {
                     Text("Непрозрачность"); Slider(value: $opacity, in: 0.2...1)
                     Button("Сбросить карточки") { titleSize = 16; spacing = 20; radius = 24; opacity = 0.78; room = true; teacher = true; end = true; wrap = true }
                 }
-                Section("Возможности") { Toggle("Live Activities", isOn: $liveActivities); NavigationLink("Поиск расписания") { TargetSearchView() }; NavigationLink("Аналитика сохранённых недель") { AnalyticsView() }; NavigationLink("Outlook") { OutlookView() }; NavigationLink("Экспорт календаря") { CalendarExportView() }; NavigationLink("Напоминания о занятиях") { LessonAlertsView() } }
+                Section("Возможности") { Toggle("Live Activities", isOn: $liveActivities); NavigationLink("Поиск расписания") { TargetSearchView() }; NavigationLink("Аналитика сохранённых недель") { AnalyticsView() }; NavigationLink("Календари устройства / Google") { PhoneCalendarView() }; NavigationLink("Начальная настройка") { FirstSetupView() }; NavigationLink("Outlook") { OutlookView() }; NavigationLink("Экспорт календаря") { CalendarExportView() }; NavigationLink("Напоминания о занятиях") { LessonAlertsView() } }
                 Section("О приложении") { Text("Lecturial 2 · iOS"); Text("Неофициальное приложение университета «Сириус»").font(.caption) }
             }.navigationTitle("Настройки")
-        }.preferredColorScheme(dark ? .dark : .light).tint(themeColor(theme, custom: customAccent))
+        }.preferredColorScheme(isPaperTheme(theme) ? .light : (dark ? .dark : .light)).tint(themeColor(theme, custom: customAccent))
     }
 }
 
@@ -545,6 +564,7 @@ struct PlanEditor: View {
 }
 
 struct ExpressiveLessonCard: View {
+    @ObservedObject private var account = AccountStore.shared
     let lesson: Lesson
     let accent: Color
     let dark: Bool
@@ -567,6 +587,11 @@ struct ExpressiveLessonCard: View {
                 }
                 Text(lesson.title).font(.custom("Manrope", size: titleSize, relativeTo: .headline).weight(.semibold)).lineLimit(wrap ? nil : 1).foregroundStyle(dark ? Color(hex: 0xF4F4F5) : Color(hex: 0x191B23))
                 if showRoom && !lesson.room.isEmpty { Label(cleanRoom(lesson.room), systemImage: "mappin.and.ellipse").font(.subheadline).foregroundStyle(dark ? Color(hex: 0xE2E2E9) : Color(hex: 0x363842)) }
+                if let mark = account.snapshot.marks.filter({ sameSubject($0.discipline,lesson.title) && ($0.date == lesson.date || $0.date == isoDate(lesson)) }).min(by: { abs(timeMinutes($0.time) - timeMinutes(lesson.start)) < abs(timeMinutes($1.time) - timeMinutes(lesson.start)) }) {
+                    HStack { if let grade = mark.grade { Text("Оценка: " + grade.formatted()).font(.caption.bold()) }; if let absent = mark.absent { Text(absent ? "Отсутствие" : "Присутствие").font(.caption) } }.foregroundStyle(accent)
+                    if let topic = mark.topic,!topic.isEmpty { Text(topic).font(.subheadline) }
+                    if let homework = mark.homework,!homework.isEmpty { Text("ДЗ: " + homework).font(.subheadline) }
+                }
                 if showTeacher && !lesson.teacher.isEmpty { Text(lesson.teacher).font(.subheadline).foregroundStyle(dark ? Color(hex: 0xBFC1CC) : Color(hex: 0x535560)) }
                 if active, let end = lesson.finish, let start = lesson.begin {
                     Label("Сейчас · осталось \(max(1, Int(end.timeIntervalSince(timeline.date) / 60))) мин", systemImage: "clock.fill").font(.caption.bold()).foregroundStyle(accent)
@@ -579,7 +604,7 @@ struct ExpressiveLessonCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {
-                    (dark ? Color(hex: 0x1D2029) : Color(hex: 0xF0F1FA)).opacity(max(0.92, opacity))
+                    (isPaperTheme(UserDefaults.standard.string(forKey:"theme") ?? "") ? Color.white : (dark ? Color(hex: 0x1D2029) : Color(hex: 0xF0F1FA))).opacity(max(0.92, opacity))
                     accent.opacity(active ? 0.12 : 0.035)
                 }
             }
@@ -591,3 +616,14 @@ struct ExpressiveLessonCard: View {
     var timeLabel: some View { Text(lesson.start + (showEnd ? " – " + lesson.end : "")).font(.system(.subheadline, design: .monospaced).weight(.medium)).foregroundStyle(accent) }
     @ViewBuilder var typeChip: some View { if let type = lesson.type, !type.isEmpty { Text(type).font(.caption.weight(.medium)).foregroundStyle(accent).padding(.horizontal, 12).padding(.vertical, 7).background(accent.opacity(dark ? 0.14 : 0.1), in: Capsule()).fixedSize(horizontal: false, vertical: true) } }
 }
+
+func isExtracurricular(_ lesson: Lesson) -> Bool {
+    let type = (lesson.type ?? "").lowercased(), title = lesson.title.trimmingCharacters(in:.whitespaces).lowercased()
+    return ["внеучеб","внеурочн","мероприят"].contains(where:type.contains) || ["мероприятие","внеурочное мероприятие","лекция по теме","экскурсия","фестиваль","встреча с ","встречи с ","тьюторский час"].contains(where:title.hasPrefix)
+}
+
+func timeMinutes(_ value: String?) -> Int { let parts = (value ?? "").split(separator: ":"); return parts.count >= 2 ? (Int(parts[0]) ?? 0) * 60 + (Int(parts[1].prefix(2)) ?? 0) : 0 }
+func isoDate(_ lesson: Lesson) -> String { guard let date = lesson.begin else { return "" }; let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = TimeZone(identifier:"Europe/Moscow"); return f.string(from:date) }
+
+func isPaperTheme(_ theme: String) -> Bool { ["paper","mint","lavender","midnight","espresso"].contains(theme) }
+func paperBackground(_ theme: String) -> Color { Color(hex:["paper":UInt32(0xF4F5F8),"mint":0xF1F8F5,"lavender":0xF6F4FB,"midnight":0xEEF1F8,"espresso":0xF7F3EF][theme] ?? 0xF4F5F8) }

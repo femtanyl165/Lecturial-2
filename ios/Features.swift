@@ -5,16 +5,47 @@ import UniformTypeIdentifiers
 
 struct TargetChoice: Identifiable { let id: String; let title: String }
 actor TargetDirectory {
-    func load(mode: String) async throws -> [TargetChoice] {
+    func load(mode: String, query: String = "") async throws -> [TargetChoice] {
         let path = mode == "teacher" ? "teacher" : (mode == "classroom" ? "classroom" : "")
         let url = URL(string: "https://schedule.siriusuniversity.ru/" + path)!
-        let (data,response) = try await URLSession.shared.data(from: url)
+        let session = URLSession(configuration:.ephemeral)
+        let (data,response) = try await session.data(from: url)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        let html = String(decoding: data, as: UTF8.self)
+        var html = String(decoding: data, as: UTF8.self)
+        if !query.trimmingCharacters(in:.whitespaces).isEmpty {
+            let initialRegex = try NSRegularExpression(pattern: #"wire:initial-data="([^"]+)""#)
+            guard let match = initialRegex.firstMatch(in:html,range:NSRange(html.startIndex...,in:html)),let range = Range(match.range(at:1),in:html) else { throw URLError(.cannotParseResponse) }
+            var initial = String(html[range])
+            for (a,b) in [("&quot;","\""),("&#039;","'"),("&lt;","<"),("&gt;",">"),("&amp;","&")] { initial = initial.replacingOccurrences(of:a,with:b) }
+            let fingerprint = try WireJSON.field("fingerprint",in:initial), memo = try WireJSON.field("serverMemo",in:initial)
+            let root = try JSONSerialization.jsonObject(with:Data(fingerprint.utf8)) as? [String:Any] ?? [:]
+            let tokenRegex = try NSRegularExpression(pattern:#"window\.livewire_token\s*=\s*'([^']+)'"#)
+            guard let tokenMatch = tokenRegex.firstMatch(in:html,range:NSRange(html.startIndex...,in:html)),let tokenRange = Range(tokenMatch.range(at:1),in:html) else { throw URLError(.cannotParseResponse) }
+            let update: [[String:Any]] = [["type":"syncInput","payload":["id":UUID().uuidString,"name":"search","value":query]]]
+            let updates = String(decoding:try JSONSerialization.data(withJSONObject:update),as:UTF8.self)
+            var req = URLRequest(url:URL(string:"https://schedule.siriusuniversity.ru/livewire/message/" + (root["name"] as? String ?? "main-grid"))!)
+            req.httpMethod = "POST"; req.setValue("application/json",forHTTPHeaderField:"Content-Type"); req.setValue(String(html[tokenRange]),forHTTPHeaderField:"X-CSRF-TOKEN"); req.setValue("true",forHTTPHeaderField:"X-Livewire"); req.setValue(url.absoluteString,forHTTPHeaderField:"Referer")
+            req.httpBody = Data(("{\"fingerprint\":" + fingerprint + ",\"serverMemo\":" + memo + ",\"updates\":" + updates + "}").utf8)
+            let (reply,status) = try await session.data(for:req)
+            guard (status as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+            let response = try JSONSerialization.jsonObject(with:reply) as? [String:Any] ?? [:]
+            if mode == "group" { html = (response["effects"] as? [String:Any])?["html"] as? String ?? "" }
+            else {
+                let state = (response["serverMemo"] as? [String:Any])?["data"] as? [String:Any] ?? [:]
+                let value = state[mode == "teacher" ? "teachersList" : "classroomsList"]
+                let values = (value as? [String:Any]).map { Array($0.values) } ?? (value as? [Any] ?? [])
+                return values.compactMap { item in
+                    if let room = item as? String,mode == "classroom" { return TargetChoice(id:"classroom:"+room,title:cleanRoom(room)) }
+                    guard let teacher = item as? [String:Any],let id = teacher["id"] as? String else { return nil }
+                    return TargetChoice(id:"teacher:"+id,title:teacher["fio"] as? String ?? ["last_name","first_name","middle_name"].compactMap { teacher[$0] as? String }.joined(separator:" "))
+                }.sorted { $0.title < $1.title }
+            }
+        }
         let api = ScheduleAPI()
         if mode == "group" {
             let regex = try NSRegularExpression(pattern: #"data-group\s*=\s*["']([^"']+)["']"#)
             let values = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { Range($0.range(at: 1), in: html).map { String(html[$0]) } }
+            if values.isEmpty && query.contains(" ") { return try await load(mode:mode,query:query.replacingOccurrences(of:#"\s+"#,with:"-",options:.regularExpression)) }
             return Array(Set(values)).sorted().map { TargetChoice(id: $0, title: $0) }
         }
         var raw = try await api.capture(#"wire:initial-data="([^"]+)""#, html)
@@ -44,11 +75,11 @@ struct TargetSearchView: View {
         List {
             Picker("Расписание", selection: $mode) { Text("Группа").tag("group"); Text("Преподаватель").tag("teacher"); Text("Аудитория").tag("classroom") }.pickerStyle(.segmented)
             if !message.isEmpty { Text(message).foregroundStyle(.secondary) }
-            ForEach(values.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }) { choice in
+            ForEach(values.filter { targetMatches($0.title,query) }) { choice in
                 Button(choice.title) { group = choice.id; label = choice.title; dismiss() }
             }
         }.searchable(text: $query, prompt: "Название или фамилия").navigationTitle("Поиск")
-        .task(id: mode) { values = []; message = "Загрузка…"; do { values = try await TargetDirectory().load(mode: mode); message = values.isEmpty ? "Сайт не вернул список. Ключ можно ввести вручную в настройках расписания." : "" } catch { message = error.localizedDescription } }
+        .task(id: mode + "|" + query) { message = "Поиск…"; do { try await Task.sleep(nanoseconds:300_000_000); let found = try await TargetDirectory().load(mode: mode,query:query); try Task.checkCancellation(); values = found; message = values.isEmpty ? "Сайт не вернул список. Ключ можно ввести вручную в настройках расписания." : "" } catch is CancellationError { } catch { message = error.localizedDescription } }
     }
 }
 struct AnalyticsView: View {
@@ -136,4 +167,24 @@ struct CalendarExportView: View {
         }
         Text(message)
     }.navigationTitle("Календарь").fileExporter(isPresented: $exporting, document: document, contentType: .calendarEvent, defaultFilename: "Lecturial.ics") { result in if case .failure(let error) = result { message = error.localizedDescription } } }
+}
+
+func targetMatches(_ title: String, _ query: String) -> Bool {
+    func normalize(_ value: String) -> String { value.lowercased().replacingOccurrences(of:"ё",with:"е").replacingOccurrences(of:#"[^\p{L}\p{N}]"#,with:"",options:.regularExpression) }
+    return normalize(title).contains(normalize(query))
+}
+struct GroupAutocomplete: View {
+    @Binding var group: String
+    @State private var query = ""
+    @State private var choices: [TargetChoice] = []
+    @State private var message = ""
+    var body: some View {
+        VStack(alignment:.leading,spacing:12) {
+            TextField("Группа: например 26/2 или ИОП ИТ",text:$query).textFieldStyle(.roundedBorder).autocorrectionDisabled()
+            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary) }
+            ScrollView { LazyVStack(alignment:.leading,spacing:8) { ForEach(choices.filter { targetMatches($0.title,query) }) { choice in Button { group = choice.id; query = choice.title; choices = []; message = "Выбрана группа: " + choice.title } label: { HStack { Text(choice.title); Spacer(); if group == choice.id { Image(systemName:"checkmark.circle.fill") } }.padding(12).background(.quaternary,in:RoundedRectangle(cornerRadius:16)) } } } }.frame(maxHeight:220)
+        }.task(id:query) {
+            do { try await Task.sleep(nanoseconds:350_000_000); let result = try await TargetDirectory().load(mode:"group",query:query); try Task.checkCancellation(); choices = result; message = choices.isEmpty ? "Ничего не найдено" : "Выберите группу из списка" } catch is CancellationError {} catch { message = "Не удалось загрузить группы: " + error.localizedDescription }
+        }
+    }
 }
