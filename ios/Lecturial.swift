@@ -127,6 +127,7 @@ actor ScheduleAPI {
 }
 struct AppRootView: View {
     @AppStorage("setupFinished") private var setupFinished = false
+    @AppStorage("background") private var background = "classic"
     @AppStorage("theme") private var theme = "sirius"
     @AppStorage("customAccent") private var customAccent = "B7C7FF"
     @AppStorage("dark") private var dark = true
@@ -135,21 +136,30 @@ struct AppRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         let accent = themeColor(theme, custom: customAccent)
+        VStack(spacing: 0) {
         TabView(selection: $selected) {
             ScheduleView().tag(0).toolbar(.hidden, for: .tabBar)
             PlansView().tag(1).toolbar(.hidden, for: .tabBar)
             ExpressiveStudyView().tag(3).toolbar(.hidden, for: .tabBar)
             AppearanceView().tag(2).toolbar(.hidden, for: .tabBar)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+
             HStack(spacing: 4) {
                 navItem(0, "Расписание", "calendar", accent)
                 navItem(1, "Планы", "checklist", accent)
                 navItem(3, "Учёба", "graduationcap", accent)
                 navItem(2, "Настройки", "gearshape", accent)
             }.padding(.horizontal, 12).padding(.vertical, 10)
-            .background(dark ? Color(hex: 0x20222B) : Color(hex: 0xEBEDF7))
-        }.tint(accent).preferredColorScheme(isPaperTheme(theme) ? .light : (dark ? .dark : .light)).onChange(of:scenePhase) { _,phase in if phase == .active, AccountStore.shared.browser.url?.host == "lks.siriusuniversity.ru" { Task { await AccountStore.shared.refresh() } } }.fullScreenCover(isPresented: Binding(get: { !setupFinished },set: { if !$0 { setupFinished = true } })) { FirstSetupView() }
+            .background { (isPaperTheme(theme) || !dark ? Color(hex: 0xEBEDF7) : Color(hex: 0x20222B)).ignoresSafeArea(edges: .bottom) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            if selected == 0 { ScheduleBackground(style: background, accent: accent, dark: isPaperTheme(theme) ? false : dark) }
+            else { (isPaperTheme(theme) ? paperBackground(theme) : (dark ? Color.black : Color(white: 0.96))).ignoresSafeArea() }
+        }
+        .tint(accent).preferredColorScheme(isPaperTheme(theme) ? .light : (dark ? .dark : .light)).onChange(of:scenePhase) { _,phase in if phase == .active, AccountStore.shared.browser.url?.host == "lks.siriusuniversity.ru" { Task { await AccountStore.shared.refresh() } } }.fullScreenCover(isPresented: Binding(get: { !setupFinished },set: { if !$0 { setupFinished = true } })) { FirstSetupView() }
     }
     func navItem(_ index: Int, _ title: String, _ symbol: String, _ accent: Color) -> some View {
         Button {
@@ -157,7 +167,7 @@ struct AppRootView: View {
         } label: {
             VStack(spacing: 5) {
                 Image(systemName: symbol).font(.system(size: 20, weight: selected == index ? .semibold : .regular)).frame(width: 64, height: 32).background(selected == index ? accent.opacity(0.2) : .clear, in: Capsule())
-                Text(title).font(.caption.weight(selected == index ? .semibold : .medium))
+                Text(title).font(.caption.weight(selected == index ? .semibold : .medium)).lineLimit(1).minimumScaleFactor(0.8)
             }.foregroundStyle(selected == index ? accent : (dark ? Color(hex: 0xBFC1CC) : Color(hex: 0x535560))).frame(maxWidth: .infinity).frame(minHeight: 48).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityAddTraits(selected == index ? [.isSelected] : [])
     }
@@ -226,6 +236,8 @@ struct ScheduleView: View {
             .scrollContentBackground(.hidden)
             .background { ScheduleBackground(style: background, accent: accent, dark: dark) }
             .navigationTitle(group.isEmpty ? "Lecturial" : group)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { if !store.lessons.isEmpty { Text("За неделю: \(store.lessons.count) занятий · \(Set(store.lessons.map(\.title)).count) предметов").font(.caption).padding(8).frame(maxWidth: .infinity).background(.ultraThinMaterial) } }
             .toolbar { Button { settings = true } label: { Image(systemName: "gearshape") } }
             .refreshable { await store.load(group: group, week: week) }
@@ -357,6 +369,7 @@ func themeColor(_ name: String, custom: String = "B7C7FF") -> Color {
     return Color(hex: colors[name] ?? 0xB7C7FF)
 }
 struct ScheduleBackground: View {
+    @AppStorage("backgroundMotif") private var motif = Data()
     let style: String
     let accent: Color
     let dark: Bool
@@ -375,6 +388,7 @@ struct ScheduleBackground: View {
             ZStack {
                 (isPaperTheme(UserDefaults.standard.string(forKey:"theme") ?? "") ? paperBackground(UserDefaults.standard.string(forKey:"theme") ?? "") : (dark ? Color.black : Color(white: 0.96)))
                 if style != "classic" { LinearGradient(colors: [accent.opacity(intensity * 0.4), .clear, Color(hex: UInt32(gradientEnd.replacingOccurrences(of: "#", with: ""), radix: 16) ?? 0x845EC2).opacity(intensity * 0.3)], startPoint: UnitPoint(x: 0.5 - cos(gradientAngle * .pi / 180) * 0.5, y: 0.5 - sin(gradientAngle * .pi / 180) * 0.5), endPoint: UnitPoint(x: 0.5 + cos(gradientAngle * .pi / 180) * 0.5, y: 0.5 + sin(gradientAngle * .pi / 180) * 0.5)) }
+                if style == "drawn" { MotifCanvas(motif:WallpaperMotif.read(motif),phase:reduceMotion || speed == 0 ? 1 : min(1,(phase.truncatingRemainder(dividingBy:8))/2),density:density,weight:weight,color:accent.opacity(intensity * 0.6)) }
                 Canvas { context, size in
                     let count = max(12, Int(36 * density))
                     let ink = accent.opacity(intensity * (dark ? 0.6 : 0.8))
@@ -452,7 +466,7 @@ struct AppearanceView: View {
                     }
                     .id("palette-" + theme)
                     Picker("Фон", selection: $background) {
-                        Text("Классический").tag("classic"); Text("Тональный").tag("dynamic"); Text("Волны").tag("waves"); Text("Топография").tag("topography"); Text("Отпечаток").tag("fingerprint"); Text("Лабиринт").tag("maze")
+                        Text("Классический").tag("classic"); Text("Тональный").tag("dynamic"); Text("Волны").tag("waves"); Text("Топография").tag("topography"); Text("Отпечаток").tag("fingerprint"); Text("Лабиринт").tag("maze"); Text("Свой рисунок").tag("drawn")
                     }
                 }
                 Section("Собственные цвета") {
@@ -460,7 +474,7 @@ struct AppearanceView: View {
                     TextField("Конец градиента RRGGBB", text: $gradientEnd).autocorrectionDisabled()
                     Text("Угол градиента: \(Int(gradientAngle))°"); Slider(value: $gradientAngle, in: 0...360)
                 }
-                Section("Настройки фона") {
+                Section("Настройки фона") { NavigationLink("Нарисовать свой узор") { MotifEditor() }
                     ScheduleBackground(style: background, accent: themeColor(theme, custom: customAccent), dark: dark).frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 20)).listRowInsets(EdgeInsets())
                     Text("Плотность линий"); Slider(value: $density, in: 0.5...1.5)
                     Text("Толщина линий"); Slider(value: $weight, in: 1...5)
@@ -564,6 +578,8 @@ struct PlanEditor: View {
 }
 
 struct ExpressiveLessonCard: View {
+    @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var account = AccountStore.shared
     let lesson: Lesson
     let accent: Color
@@ -610,6 +626,9 @@ struct ExpressiveLessonCard: View {
             }
             .overlay(alignment: .leading) { Capsule().fill(active ? accent : stripe).frame(width: 3).padding(.leading, 12).padding(.vertical, 22) }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .opacity(appeared || reduceMotion ? 1 : 0)
+            .offset(y:appeared || reduceMotion ? 0 : 16)
+            .onAppear { withAnimation(reduceMotion ? nil : .spring(response:0.4,dampingFraction:0.85)) { appeared = true } }
             .overlay { if active { RoundedRectangle(cornerRadius: radius).strokeBorder(accent.opacity(0.45), lineWidth: 1) } }
         }
     }

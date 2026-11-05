@@ -1,5 +1,7 @@
 import SwiftUI
 import WebKit
+import CryptoKit
+import Security
 import EventKit
 import UserNotifications
 
@@ -20,16 +22,26 @@ func sameSubject(_ a: String, _ b: String) -> Bool { let a = normalizedSubject(a
     @Published var snapshot = AccountSnapshot()
     @Published var message = ""
     @Published var busy = false
-    let browser = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+    let browser: WKWebView = { let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent(); return WKWebView(frame:.zero,configuration:config) }()
     private var cache: URL { URL.applicationSupportDirectory.appendingPathComponent("lecturial-account.json") }
     override init() {
         super.init(); browser.navigationDelegate = self
-        if let data = try? Data(contentsOf: cache), let saved = try? JSONDecoder().decode(AccountSnapshot.self, from: data) { snapshot = saved }
+        if let data = try? Data(contentsOf:cache) {
+            do { let plain = data.first == 123 ? data : try AccountSecrets.decrypt(data); snapshot = try JSONDecoder().decode(AccountSnapshot.self,from:plain); if data.first == 123 { try AccountSecrets.encrypt(plain).write(to:cache,options:[.atomic,.completeFileProtection]) } } catch { message = "Не удалось открыть кэш личного кабинета. Войдите заново." }
+        }
     }
-    func open() { browser.load(URLRequest(url: URL(string:"https://lks.siriusuniversity.ru/login")!)) }
+    func open() {
+        Task {
+            if let data = AccountSecrets.read("cookies"),let fields = try? JSONDecoder().decode([[String:String]].self,from:data) { for fields in fields { let properties = Dictionary(uniqueKeysWithValues:fields.map { (HTTPCookiePropertyKey($0.key),$0.value) }); if let cookie = HTTPCookie(properties:properties) { await browser.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) } } }
+            browser.load(URLRequest(url:URL(string:"https://lks.siriusuniversity.ru/login")!))
+        }
+    }
     func refresh() async {
         guard !busy else { return }; busy = true; defer { busy = false }
         do {
+            let cookies = await browser.configuration.websiteDataStore.httpCookieStore.allCookies().filter { $0.domain == "lks.siriusuniversity.ru" || $0.domain.hasSuffix(".siriusuniversity.ru") }
+            let encoded = cookies.map { cookie in Dictionary(uniqueKeysWithValues:(cookie.properties ?? [:]).map { ($0.key.rawValue,String(describing:$0.value)) }) }
+            try AccountSecrets.write(try JSONEncoder().encode(encoded),name:"cookies")
             let script = #"""
             (async()=>{
               async function page(path){const r=await fetch(path,{credentials:'include'});if(!r.ok)throw Error('HTTP '+r.status);if(new URL(r.url).pathname.startsWith('/login'))throw Error('Сессия истекла — войдите заново');return new DOMParser().parseFromString(await r.text(),'text/html');}
@@ -92,11 +104,11 @@ func sameSubject(_ a: String, _ b: String) -> Bool { let a = normalizedSubject(a
             let old = Dictionary(uniqueKeysWithValues: snapshot.marks.map { ($0.id,$0) })
             let changed = marks.values.filter { old[$0.id] == nil || old[$0.id]?.grade != $0.grade }
             if !snapshot.marks.isEmpty && UserDefaults.standard.bool(forKey:"accountAlerts") {
-                for mark in changed.prefix(10) { let content = UNMutableNotificationContent(); content.title = mark.discipline; content.body = mark.grade.map { "Новая оценка: \($0)" } ?? "Обновление журнала"; try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:"mark-" + mark.id, content:content, trigger:nil)) }
+                for mark in changed.prefix(10) { let content = UNMutableNotificationContent(); content.title = mark.discipline; content.body = "В личном кабинете есть новые данные"; content.title = "Личный кабинет"; try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:"mark-" + mark.id, content:content, trigger:nil)) }
             }
             snapshot = AccountSnapshot(marks:Array(marks.values).sorted { $0.date > $1.date },subjects:subjects.sorted { $0.id < $1.id },news:root["news"] as? [String] ?? [],notifications:root["notifications"] as? [String] ?? [],loaded:Date(),noticeItems:try JSONDecoder().decode([AccountNotice].self,from:JSONSerialization.data(withJSONObject:root["noticeItems"] ?? [])),newsItems:try JSONDecoder().decode([AccountNews].self,from:JSONSerialization.data(withJSONObject:root["newsItems"] ?? [])),unread:root["unread"] as? Int)
             try FileManager.default.createDirectory(at:cache.deletingLastPathComponent(),withIntermediateDirectories:true)
-            try JSONEncoder().encode(snapshot).write(to:cache,options:[.atomic,.completeFileProtection])
+            try AccountSecrets.encrypt(JSONEncoder().encode(snapshot)).write(to:cache,options:[.atomic,.completeFileProtection])
             message = "Обновлено"
         } catch { message = error.localizedDescription }
     }
@@ -104,7 +116,7 @@ func sameSubject(_ a: String, _ b: String) -> Bool { let a = normalizedSubject(a
         let store = browser.configuration.websiteDataStore
         let records = await store.dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
         await store.removeData(ofTypes:WKWebsiteDataStore.allWebsiteDataTypes(),for:records.filter { $0.displayName.contains("sirius") })
-        snapshot = AccountSnapshot(); try? FileManager.default.removeItem(at:cache); message = "Личный кабинет отключён"
+        snapshot = AccountSnapshot(); AccountSecrets.remove("cookies"); AccountSecrets.remove("cacheKey"); try? FileManager.default.removeItem(at:cache); message = "Личный кабинет отключён"
     }
 }
 struct AccountBrowser: UIViewRepresentable { let web: WKWebView; func makeUIView(context: Context) -> WKWebView { web }; func updateUIView(_ uiView: WKWebView,context:Context) {} }
@@ -359,4 +371,14 @@ struct OriginalDisciplineCard: View {
             } }
         }.padding(16).frame(maxWidth:.infinity,alignment:.leading).background(.quaternary,in:UnevenRoundedRectangle(topLeadingRadius:first ? 24 : 4,bottomLeadingRadius:last ? 24 : 4,bottomTrailingRadius:last ? 24 : 4,topTrailingRadius:first ? 24 : 4))
     }
+}
+
+enum AccountSecrets {
+    static func query(_ name: String) -> [String:Any] { [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"com.rassvet.lecturial2.lks",kSecAttrAccount as String:name] }
+    static func read(_ name: String) -> Data? { var q = query(name); q[kSecReturnData as String] = true; var result: CFTypeRef?; guard SecItemCopyMatching(q as CFDictionary,&result) == errSecSuccess else { return nil }; return result as? Data }
+    static func write(_ data: Data,name: String) throws { let q = query(name); let status = SecItemUpdate(q as CFDictionary,[kSecValueData as String:data] as CFDictionary); if status == errSecItemNotFound { var value = q; value[kSecValueData as String] = data; value[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly; guard SecItemAdd(value as CFDictionary,nil) == errSecSuccess else { throw URLError(.cannotWriteToFile) } } else if status != errSecSuccess { throw URLError(.cannotWriteToFile) } }
+    static func remove(_ name: String) { SecItemDelete(query(name) as CFDictionary) }
+    static func key() throws -> SymmetricKey { if let data = read("cacheKey") { return SymmetricKey(data:data) }; let key = SymmetricKey(size:.bits256); try write(key.withUnsafeBytes { Data($0) },name:"cacheKey"); return key }
+    static func encrypt(_ data: Data) throws -> Data { guard let sealed = try AES.GCM.seal(data,using:key()).combined else { throw URLError(.cannotWriteToFile) }; return sealed }
+    static func decrypt(_ data: Data) throws -> Data { guard let stored = read("cacheKey") else { throw URLError(.userAuthenticationRequired) }; return try AES.GCM.open(AES.GCM.SealedBox(combined:data),using:SymmetricKey(data:stored)) }
 }

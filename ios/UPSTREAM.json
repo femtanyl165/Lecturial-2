@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/neckmnull/Lecturial-2",
+  "commit": "9bbece90c9d3821e2d87868db0452d37149999e3",
+  "version": "1.13.2",
+  "ios_port": "incremental; known remaining differences documented in README.md"
+}
