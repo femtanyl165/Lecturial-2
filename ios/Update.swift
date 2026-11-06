@@ -125,7 +125,7 @@ struct PlannerBlock: Identifiable { var id: String { title + String(start.timeIn
     static func lessons() -> [Lesson] {
         let group = UserDefaults.standard.string(forKey:"group") ?? ""
         var ids = Set<String>()
-        return UserDefaults.standard.dictionaryRepresentation().filter { $0.key.hasPrefix("week-" + group + "-") }.values.compactMap { $0 as? Data }.flatMap { (try? JSONDecoder().decode([Lesson].self,from:$0)) ?? [] }.filter { ids.insert($0.id).inserted }
+        return UserDefaults.standard.dictionaryRepresentation().filter { $0.key.hasPrefix("week-" + group + "-") }.values.compactMap { $0 as? Data }.flatMap { (try? JSONDecoder().decode([Lesson].self,from:$0)) ?? [] }.filter { ids.insert($0.id).inserted && matchesLanguageTeacher($0,group:group) }
     }
     static func plans() -> [StudyTask] { UserDefaults.standard.data(forKey:"plans").flatMap { try? JSONDecoder().decode([StudyTask].self,from:$0) } ?? [] }
 }
@@ -224,11 +224,11 @@ struct FirstSetupView: View {
     @AppStorage("group") private var group = ""
     @AppStorage("scheduleLayout") private var layout = "feed"
     @State private var step = 0
-    var body: some View { NavigationStack { VStack(alignment:.leading,spacing:24) {
+    var body: some View { NavigationStack { ScrollView { VStack(alignment:.leading,spacing:24) {
         ProgressView(value:Double(step),total:5)
         Text(["Добро пожаловать","Ваше расписание","Личный кабинет","Уведомления","Вид расписания","Всё готово"][step]).font(.largeTitle.bold())
         if step == 0 { Image("LecturialAvatar").resizable().frame(width:100,height:100).clipShape(RoundedRectangle(cornerRadius:28)); Text("Расписание, оценки, планы и календари — в одном приложении") }
-        if step == 1 { GroupAutocomplete(group:$group); NavigationLink("Поиск группы или преподавателя") { TargetSearchView() } }
+        if step == 1 { GroupAutocomplete(group:$group); NavigationLink("Поиск группы или преподавателя") { TargetSearchView() }; if !group.isEmpty { LanguageTeacherPicker() } }
         if step == 2 { NavigationLink("Подключить личный кабинет") { ExpressiveStudyView() }; Text("Можно подключить позже во вкладке «Учёба»") }
         if step == 3 { Button("Разрешить уведомления") { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound,.badge]) } } }
         if step == 4 { LayoutChooser(layout:$layout); NavigationLink("Настроить оформление") { AppearanceView() } }
@@ -236,7 +236,7 @@ struct FirstSetupView: View {
         Spacer()
         Button(step == 5 ? "Открыть приложение" : "Далее") { if step == 5 { finished = true } else { step += 1 } }.buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         Button("Пропустить") { finished = true }
-    }.padding(24) } }
+    }.padding(24) } } }
 }
 
 struct LayoutChooser: View {

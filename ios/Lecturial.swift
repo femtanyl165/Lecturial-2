@@ -114,7 +114,7 @@ actor ScheduleAPI {
         let key = "week-" + group + "-" + String(Int(week.timeIntervalSince1970 / 86400))
         lessons = (UserDefaults.standard.data(forKey: key)).flatMap { try? JSONDecoder().decode([Lesson].self, from: $0) } ?? []
         message = lessons.isEmpty ? "" : "Сохранённое расписание"
-        do { lessons = try await api.fetch(group: group, week: week); UserDefaults.standard.set(try JSONEncoder().encode(lessons), forKey: key); await LessonAlertService.update(lessons); await SystemFeatures.update(lessons, group: group); await PhoneCalendar.shared.sync(); await OutlookSync.shared.automatic(lessons: lessons, group: group, week: week); message = lessons.isEmpty ? "На эту неделю занятий нет" : "Обновлено" }
+        do { lessons = try await api.fetch(group: group, week: week); UserDefaults.standard.set(try JSONEncoder().encode(lessons), forKey: key); await LessonAlertService.update(lessons.filter { matchesLanguageTeacher($0,group:group) }); await SystemFeatures.update(lessons, group: group); await PhoneCalendar.shared.sync(); await OutlookSync.shared.automatic(lessons: lessons.filter { matchesLanguageTeacher($0,group:group) }, group: group, week: week); message = lessons.isEmpty ? "На эту неделю занятий нет" : "Обновлено" }
         catch { message = "Не удалось обновить расписание: " + error.localizedDescription }
     }
 }
@@ -173,6 +173,7 @@ struct AppRootView: View {
     }
 }
 struct ScheduleView: View {
+    @AppStorage("languageTeacherRevision") private var languageTeacherRevision = 0
     @AppStorage("scheduleLayout") private var layout = "feed"
     @State private var selectedDay = max(0, (Calendar(identifier: .iso8601).component(.weekday, from: Date()) + 5) % 7)
     @AppStorage("customAccent") private var customAccent = "B7C7FF"
@@ -214,7 +215,7 @@ struct ScheduleView: View {
                 }
                 ForEach(layout == "days" ? [selectedDay] : Array(0..<7), id: \.self) { offset in
                     let date = Calendar.current.date(byAdding: .day, value: offset, to: week)!
-                    let items = store.lessons.filter { $0.date == dateKey(date) && (group.hasPrefix("teacher:") || group.hasPrefix("classroom:") || !isExtracurricular($0)) }
+                    let items = store.lessons.filter { matchesLanguageTeacher($0,group:group) && $0.date == dateKey(date) && (group.hasPrefix("teacher:") || group.hasPrefix("classroom:") || !isExtracurricular($0)) }
                     Section {
                         if items.isEmpty { Text(store.message.hasPrefix("Не удалось") ? "Нет сохранённых данных на этот день" : (store.loading ? "Загрузка…" : "Нет занятий")).foregroundStyle(.secondary) }
                         ForEach(items) { lesson in
@@ -242,10 +243,11 @@ struct ScheduleView: View {
             .toolbar { Button { settings = true } label: { Image(systemName: "gearshape") } }
             .refreshable { await store.load(group: group, week: week) }
             .task { await store.load(group: group, week: week) }
+            .onChange(of:languageTeacherRevision) { _,_ in store.objectWillChange.send() }
             .task(id: group) { while !Task.isCancelled { await SystemFeatures.update(store.lessons, group: group); do { try await Task.sleep(nanoseconds: 30_000_000_000) } catch { break } } }
             .sheet(isPresented: $settings, onDismiss: { Task { await store.load(group: group, week: week) } }) {
                 NavigationStack { Form {
-                    Section("Учёба") { NavigationLink("Найти группу, преподавателя, аудиторию") { TargetSearchView() }; TextField("Ключ расписания", text: $group).autocorrectionDisabled() }
+                    Section("Учёба") { LanguageTeacherPicker(); NavigationLink("Найти группу, преподавателя, аудиторию") { TargetSearchView() }; TextField("Ключ расписания", text: $group).autocorrectionDisabled() }
                     Section {
                     HStack(spacing: 16) { Image("LecturialAvatar").resizable().frame(width: 64, height: 64).clipShape(RoundedRectangle(cornerRadius: 16)); VStack(alignment: .leading) { Text("Lecturial 2").font(.headline); Text("Расписание Сириуса").foregroundStyle(.secondary) } }
                 }
@@ -274,7 +276,7 @@ struct StudyTask: Codable, Identifiable {
     @Published var error = ""
     init() { if let data = UserDefaults.standard.data(forKey: "plans") { tasks = (try? JSONDecoder().decode([StudyTask].self, from: data)) ?? [] } }
     func save() {
-        do { let data = try JSONEncoder().encode(tasks); UserDefaults.standard.set(data, forKey: "plans"); UserDefaults(suiteName: "group.com.rassvet.lecturial2")?.set(data, forKey: "plans"); WidgetCenter.shared.reloadAllTimelines() }
+        do { let data = try JSONEncoder().encode(tasks); UserDefaults.standard.set(data, forKey: "plans"); WidgetStore.defaults?.set(data, forKey: "plans"); WidgetCenter.shared.reloadAllTimelines() }
         catch { self.error = error.localizedDescription }
     }
     func add(title: String, due: Date, remind: Bool) async {
@@ -433,6 +435,7 @@ struct ScheduleBackground: View {
     }
 }
 struct AppearanceView: View {
+    @AppStorage("widgetStatus") private var widgetStatus = "Данные ещё не переданы"
     @AppStorage("scheduleLayout") private var layout = "feed"
     @AppStorage("theme") private var theme = "sirius"
     @AppStorage("dark") private var dark = true
@@ -489,6 +492,7 @@ struct AppearanceView: View {
                     Text("Непрозрачность"); Slider(value: $opacity, in: 0.2...1)
                     Button("Сбросить карточки") { titleSize = 16; spacing = 20; radius = 24; opacity = 0.78; room = true; teacher = true; end = true; wrap = true }
                 }
+                Section("Виджет") { Text(widgetStatus).font(.caption); Text("После установки через AltStore сохраняйте расширения. Для данных нужен общий App Group приложения и виджета.").font(.caption).foregroundStyle(.secondary) }
                 Section("Возможности") { Toggle("Live Activities", isOn: $liveActivities); NavigationLink("Поиск расписания") { TargetSearchView() }; NavigationLink("Аналитика сохранённых недель") { AnalyticsView() }; NavigationLink("Календари устройства / Google") { PhoneCalendarView() }; NavigationLink("Начальная настройка") { FirstSetupView() }; NavigationLink("Outlook") { OutlookView() }; NavigationLink("Экспорт календаря") { CalendarExportView() }; NavigationLink("Напоминания о занятиях") { LessonAlertsView() } }
                 Section("О приложении") { Text("Lecturial 2 · iOS"); Text("Неофициальное приложение университета «Сириус»").font(.caption) }
             }.navigationTitle("Настройки")

@@ -10,7 +10,7 @@ struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> Entry { Entry(date: Date(), lessons: []) }
     func getSnapshot(in context: Context, completion: @escaping (Entry) -> Void) { completion(read()) }
     func read() -> Entry {
-        let data = UserDefaults(suiteName: "group.com.rassvet.lecturial2")?.data(forKey: "widgetLessons")
+        let data = WidgetStore.read() ?? WidgetStore.defaults?.data(forKey: "widgetLessons")
         return Entry(date: Date(), lessons: data.flatMap { try? JSONDecoder().decode([Snapshot].self, from: $0) } ?? [])
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
@@ -22,7 +22,7 @@ struct Provider: TimelineProvider {
 struct WidgetPageIntent: AppIntent {
     static var title: LocalizedStringResource = "Следующие занятия"
     func perform() async throws -> some IntentResult {
-        let store = UserDefaults(suiteName: "group.com.rassvet.lecturial2")
+        let store = WidgetStore.defaults
         store?.set((store?.integer(forKey: "widgetPage") ?? 0) + 1, forKey: "widgetPage")
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
@@ -36,10 +36,10 @@ struct DayWidgetView: View {
         let items = entry.lessons.filter { calendar.isDate($0.start, inSameDayAs: entry.date) }.sorted { $0.start < $1.start }
         let capacity = family == .systemLarge ? 6 : (family == .systemMedium ? 3 : 2)
         let pages = max(1, Int(ceil(Double(items.count) / Double(capacity))))
-        let page = (UserDefaults(suiteName: "group.com.rassvet.lecturial2")?.integer(forKey: "widgetPage") ?? 0) % pages
+        let page = (WidgetStore.defaults?.integer(forKey: "widgetPage") ?? 0) % pages
         VStack(alignment: .leading, spacing: 5) {
             HStack { Text(entry.date, format: .dateTime.weekday().day().month()).font(.caption.bold()); Spacer(); Text("\(items.count) пар").font(.caption2) }
-            if items.isEmpty { Text("Нет сохранённых занятий на сегодня. Обновите расписание в приложении.").font(.caption) }
+            if items.isEmpty { Text(WidgetStore.location == nil ? "Нет доступа к App Group. Проверьте подпись расширения." : (WidgetStore.read() == nil ? "Откройте приложение и обновите расписание." : "На сегодня занятий нет.")).font(.caption) }
             ForEach(Array(items.dropFirst(page * capacity).prefix(capacity).enumerated()), id: \.offset) { _, lesson in
                 HStack(spacing: 6) {
                     RoundedRectangle(cornerRadius: 2).fill(lesson.start <= entry.date && entry.date < lesson.end ? Color.green : Color.blue).frame(width: 3)
